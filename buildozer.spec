@@ -20,7 +20,7 @@ version = 1.0
 
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
-requirements = python3,kivy==2.2.0,kivymd==1.1.1,pillow,opencv-python,pyzbar,sqlite3,pandas,openpyxl,requests,anthropic,plyer
+requirements = python3,kivy==2.1.0,kivymd==1.1.1,pillow==9.5.0,requests,anthropic,plyer,pyjnius,sqlite3
 
 # (str) Supported orientation (one of landscape, sensorLandscape, portrait or all)
 orientation = portrait
@@ -29,10 +29,22 @@ orientation = portrait
 fullscreen = 0
 
 # (int) Target Android API, should be as high as possible.
-android.api = 31
+android.api = 33
 
 # (int) Minimum API your APK will support.
 android.minapi = 21
+
+# (list) Permissions
+android.permissions = CAMERA, WRITE_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE, INTERNET
+
+# (list) Android addons
+android.add_src = 
+
+# (str) Bootstrap to use for android builds
+android.bootstrap = sdl2
+
+# (bool) Use --private data storage (True) or --dir public storage (False)
+android.private_storage = True
 
 # (str) Android NDK version to use
 android.ndk = 25b

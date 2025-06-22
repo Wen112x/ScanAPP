@@ -2,10 +2,13 @@
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.config import Config
-# Configurar tamaño de ventana para simular móvil (9:16 ratio)
-Config.set('graphics', 'width', '360')
-Config.set('graphics', 'height', '640')
-Config.set('graphics', 'resizable', False)
+# Configuración para Android - solo en desktop
+import platform
+if platform.system() == 'Windows' or platform.system() == 'Linux':
+    # Solo configurar ventana en desktop
+    Config.set('graphics', 'width', '360')
+    Config.set('graphics', 'height', '640')
+    Config.set('graphics', 'resizable', False)
 
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
@@ -37,7 +40,18 @@ import threading
 import sqlite3
 from database import DatabaseManager
 from ocr_processor import OCRProcessor
-from barcode_scanner import BarcodeScanner
+
+# Import appropriate barcode scanner
+try:
+    from android_barcode import AndroidBarcodeScanner as BarcodeScanner
+    print("Using Android barcode scanner")
+except ImportError:
+    try:
+        from barcode_scanner import BarcodeScanner
+        print("Using desktop barcode scanner")
+    except ImportError:
+        BarcodeScanner = None
+        print("No barcode scanner available")
 
 class MainScreen(MDScreen):
     def __init__(self, **kwargs):
@@ -75,9 +89,9 @@ class MainScreen(MDScreen):
         nav_button = MDRaisedButton(
             text="管理送货单",
             size_hint_y=None,
-            height=60,
-            on_press=self.go_to_delivery_notes
+            height=60
         )
+        nav_button.bind(on_release=self.go_to_delivery_notes)
         content.add_widget(nav_button)
         
         main_layout.add_widget(content)
@@ -134,15 +148,16 @@ class DeliveryNotesScreen(MDScreen):
             content_cls=text_field,
             buttons=[
                 MDFlatButton(
-                    text="取消",
-                    on_press=lambda x: dialog.dismiss()
+                    text="取消"
                 ),
                 MDRaisedButton(
-                    text="创建",
-                    on_press=lambda x: self.save_new_delivery_note(text_field.text, dialog)
+                    text="创建"
                 ),
             ],
         )
+        # Bind button events
+        dialog.buttons[0].bind(on_release=lambda x: dialog.dismiss())
+        dialog.buttons[1].bind(on_release=lambda x: self.save_new_delivery_note(text_field.text, dialog))
         dialog.open()
     
     def save_new_delivery_note(self, name, dialog):
@@ -162,9 +177,9 @@ class DeliveryNotesScreen(MDScreen):
                 size_hint_y=None,
                 height=80,
                 spacing=10,
-                elevation=2,
-                on_press=lambda x, note_id=note[0]: self.open_delivery_note(note_id)
+                elevation=2
             )
+            card.bind(on_release=lambda x, note_id=note[0]: self.open_delivery_note(note_id))
             
             # Horizontal layout for content and delete button
             content_layout = MDBoxLayout(orientation='horizontal', spacing=10)
@@ -195,9 +210,9 @@ class DeliveryNotesScreen(MDScreen):
                 icon="delete",
                 size_hint_x=0.15,
                 theme_icon_color="Custom",
-                icon_color=[1, 0.2, 0.2, 1],
-                on_press=lambda x, note_id=note[0]: self.delete_delivery_note(note_id)
+                icon_color=[1, 0.2, 0.2, 1]
             )
+            delete_btn.bind(on_release=lambda x, note_id=note[0]: self.delete_delivery_note(note_id))
             
             content_layout.add_widget(info_layout)
             content_layout.add_widget(delete_btn)
@@ -219,15 +234,16 @@ class DeliveryNotesScreen(MDScreen):
             text="确定要删除此送货单吗？所有相关商品也将被删除。",
             buttons=[
                 MDFlatButton(
-                    text="取消",
-                    on_press=lambda x: dialog.dismiss()
+                    text="取消"
                 ),
                 MDRaisedButton(
-                    text="删除",
-                    on_press=lambda x: self.confirm_delete(note_id, dialog)
+                    text="删除"
                 ),
             ],
         )
+        # Bind delete dialog buttons
+        dialog.buttons[0].bind(on_release=lambda x: dialog.dismiss())
+        dialog.buttons[1].bind(on_release=lambda x: self.confirm_delete(note_id, dialog))
         dialog.open()
     
     def confirm_delete(self, note_id, dialog):
@@ -338,16 +354,16 @@ class DeliveryDetailScreen(MDScreen):
         camera_btn = MDRaisedButton(
             text="拍照",
             size_hint_y=None,
-            height=50,
-            on_press=lambda x: self.take_photos()
+            height=50
         )
+        camera_btn.bind(on_release=lambda x: self.take_photos())
         
         gallery_btn = MDRaisedButton(
             text="从相册选择",
             size_hint_y=None,
-            height=50,
-            on_press=lambda x: self.choose_from_gallery()
+            height=50
         )
+        gallery_btn.bind(on_release=lambda x: self.choose_from_gallery())
         
         content.add_widget(camera_btn)
         content.add_widget(gallery_btn)
@@ -358,11 +374,12 @@ class DeliveryDetailScreen(MDScreen):
             content_cls=content,
             buttons=[
                 MDFlatButton(
-                    text="取消",
-                    on_press=lambda x: self.source_dialog.dismiss()
+                    text="取消"
                 ),
             ],
         )
+        # Bind source dialog button
+        self.source_dialog.buttons[0].bind(on_release=lambda x: self.source_dialog.dismiss())
         self.source_dialog.open()
     
     def take_photos(self):
@@ -389,15 +406,16 @@ class DeliveryDetailScreen(MDScreen):
                 text=f"第 {self.photo_count} 张照片已拍摄。是否继续拍照？",
                 buttons=[
                     MDFlatButton(
-                        text="完成",
-                        on_press=lambda x: self.finish_photo_session(dialog)
+                        text="完成"
                     ),
                     MDRaisedButton(
-                        text="继续拍照",
-                        on_press=lambda x: self.continue_photo_session(dialog)
+                        text="继续拍照"
                     ),
                 ],
             )
+            # Bind photo dialog buttons
+            dialog.buttons[0].bind(on_release=lambda x: self.finish_photo_session(dialog))
+            dialog.buttons[1].bind(on_release=lambda x: self.continue_photo_session(dialog))
             dialog.open()
     
     def continue_photo_session(self, dialog):
@@ -430,15 +448,16 @@ class DeliveryDetailScreen(MDScreen):
                 text=f"已选择 {len(self.collected_images)} 张图片。是否继续选择？",
                 buttons=[
                     MDFlatButton(
-                        text="完成",
-                        on_press=lambda x: self.finish_selection_session(dialog)
+                        text="完成"
                     ),
                     MDRaisedButton(
-                        text="继续选择",
-                        on_press=lambda x: self.continue_selection_session(dialog)
+                        text="继续选择"
                     ),
                 ],
             )
+            # Bind selection dialog buttons
+            dialog.buttons[0].bind(on_release=lambda x: self.finish_selection_session(dialog))
+            dialog.buttons[1].bind(on_release=lambda x: self.continue_selection_session(dialog))
             dialog.open()
     
     def continue_selection_session(self, dialog):
@@ -480,11 +499,11 @@ class DeliveryDetailScreen(MDScreen):
                 text="无法从图像中提取表格数据。",
                 buttons=[
                     MDFlatButton(
-                        text="确定",
-                        on_press=lambda x: dialog.dismiss()
+                        text="确定"
                     ),
                 ],
             )
+            dialog.buttons[0].bind(on_release=lambda x: dialog.dismiss())
             dialog.open()
             return
         
@@ -499,11 +518,11 @@ class DeliveryDetailScreen(MDScreen):
                 text="无法从图像中提取有效的表格数据。",
                 buttons=[
                     MDFlatButton(
-                        text="确定",
-                        on_press=lambda x: dialog.dismiss()
+                        text="确定"
                     ),
                 ],
             )
+            dialog.buttons[0].bind(on_release=lambda x: dialog.dismiss())
             dialog.open()
             return
         
@@ -566,16 +585,16 @@ class DeliveryDetailScreen(MDScreen):
                         text=status_text,
                         size_hint_y=None,
                         height=30,
-                        md_bg_color=status_color,
-                        on_press=lambda x, item_id=item[0]: self.toggle_item_status(item_id)
+                        md_bg_color=status_color
                     )
+                    status_btn.bind(on_release=lambda x, item_id=item[0]: self.toggle_item_status(item_id))
                     
                     scan_btn = MDIconButton(
                         icon="barcode-scan",
                         size_hint_y=None,
-                        height=30,
-                        on_press=lambda x, item_id=item[0]: self.scan_item_barcode(item_id)
+                        height=30
                     )
+                    scan_btn.bind(on_release=lambda x, item_id=item[0]: self.scan_item_barcode(item_id))
                     
                     actions_layout.add_widget(status_btn)
                     actions_layout.add_widget(scan_btn)
@@ -625,11 +644,11 @@ class DeliveryDetailScreen(MDScreen):
                     text=f"送货单已导出到: {filename}",
                     buttons=[
                         MDFlatButton(
-                            text="确定",
-                            on_press=lambda x: dialog.dismiss()
+                            text="确定"
                         ),
                     ],
                 )
+                dialog.buttons[0].bind(on_release=lambda x: dialog.dismiss())
                 dialog.open()
         except Exception as e:
             print(f"导出失败: {e}")
@@ -750,9 +769,9 @@ class ColumnMappingScreen(MDScreen):
         import_btn = MDRaisedButton(
             text="导入数据",
             size_hint_y=None,
-            height=50,
-            on_press=self.import_mapped_data
+            height=50
         )
+        import_btn.bind(on_release=self.import_mapped_data)
         layout.add_widget(import_btn)
         
         self.content.clear_widgets()
@@ -812,11 +831,11 @@ class ColumnMappingScreen(MDScreen):
                 text=f"成功导入 {imported_count} 个商品。",
                 buttons=[
                     MDFlatButton(
-                        text="确定",
-                        on_press=lambda x: self.finish_import(dialog)
+                        text="确定"
                     ),
                 ],
             )
+            dialog.buttons[0].bind(on_release=lambda x: self.finish_import(dialog))
             dialog.open()
             
         except Exception as e:
@@ -885,18 +904,18 @@ class BarcodeScanScreen(MDScreen):
         camera_btn = MDRaisedButton(
             text="使用相机扫描",
             size_hint_y=None,
-            height=60,
-            on_press=self.scan_from_camera
+            height=60
         )
+        camera_btn.bind(on_release=self.scan_from_camera)
         content.add_widget(camera_btn)
         
         # Scan from image button
         image_btn = MDRaisedButton(
             text="从图片扫描",
             size_hint_y=None,
-            height=60,
-            on_press=self.scan_from_image
+            height=60
         )
+        image_btn.bind(on_release=self.scan_from_image)
         content.add_widget(image_btn)
         
         # Manual input
@@ -944,11 +963,11 @@ class BarcodeScanScreen(MDScreen):
                         text="未能从图片中检测到条码。",
                         buttons=[
                             MDFlatButton(
-                                text="确定",
-                                on_press=lambda x: dialog.dismiss()
+                                text="确定"
                             ),
                         ],
                     )
+                    dialog.buttons[0].bind(on_release=lambda x: dialog.dismiss())
                     dialog.open()
             except Exception as e:
                 print(f"图片扫描失败: {e}")
@@ -975,11 +994,11 @@ class BarcodeScanScreen(MDScreen):
                     text=f"条码 {barcode} 已保存。",
                     buttons=[
                         MDFlatButton(
-                            text="确定",
-                            on_press=lambda x: self.finish_scan(dialog, item_id)
+                            text="确定"
                         ),
                     ],
                 )
+                dialog.buttons[0].bind(on_release=lambda x: self.finish_scan(dialog, item_id))
                 dialog.open()
         except Exception as e:
             print(f"处理条码时出错: {e}")
@@ -993,28 +1012,146 @@ class BarcodeScanScreen(MDScreen):
 
 class InventoryManagementApp(MDApp):
     def build(self):
-        # Initialize database
-        self.db = DatabaseManager()
+        try:
+            # Initialize database
+            self.db = DatabaseManager()
+            
+            # Initialize image processor with API key check
+            self.image_processor = None
+            return self.check_api_key()
+            
+        except Exception as e:
+            print(f"Error building app: {e}")
+            # Return minimal screen on error
+            from kivymd.uix.label import MDLabel
+            return MDLabel(text=f"Error: {str(e)}")
+    
+    def check_api_key(self):
+        """Check if API key exists, if not prompt user"""
+        try:
+            with open('config.txt', 'r') as f:
+                api_key = f.read().strip()
+                if api_key and api_key != 'your_claude_api_key_here':
+                    self.image_processor = OCRProcessor(api_key)
+                    return self.build_main_screens()
+                else:
+                    return self.show_api_key_dialog()
+        except FileNotFoundError:
+            return self.show_api_key_dialog()
+        except Exception as e:
+            print(f"Error reading API key: {e}")
+            return self.show_api_key_dialog()
+    
+    def show_api_key_dialog(self):
+        """Show dialog to input API key"""
+        from kivymd.uix.textfield import MDTextField
+        from kivymd.uix.dialog import MDDialog
+        from kivymd.uix.button import MDFlatButton, MDRaisedButton
         
-        # Initialize image processor
-        with open('config.txt', 'r') as f:
-            api_key = f.read().strip()
-        self.image_processor = OCRProcessor(api_key)
+        self.api_key_field = MDTextField(
+            hint_text="输入 Claude API Key",
+            helper_text="请输入您的 Claude API Key 以使用 OCR 功能",
+            helper_text_mode="on_focus",
+            password=True
+        )
         
-        # Initialize barcode scanner
-        self.barcode_scanner = BarcodeScanner()
+        self.api_dialog = MDDialog(
+            title="设置 API Key",
+            type="custom",
+            content_cls=self.api_key_field,
+            buttons=[
+                MDFlatButton(
+                    text="跳过"
+                ),
+                MDRaisedButton(
+                    text="保存"
+                ),
+            ],
+        )
         
-        # Screen manager
-        sm = ScreenManager()
+        # Bind dialog buttons
+        self.api_dialog.buttons[0].bind(on_release=lambda x: self.skip_api_key())
+        self.api_dialog.buttons[1].bind(on_release=lambda x: self.save_api_key())
         
-        # Add screens
-        sm.add_widget(MainScreen())
-        sm.add_widget(DeliveryNotesScreen())
-        sm.add_widget(DeliveryDetailScreen())
-        sm.add_widget(ColumnMappingScreen())
-        sm.add_widget(BarcodeScanScreen())
+        # Build minimal screen first and show dialog after delay
+        screen_manager = self.build_main_screens()
         
-        return sm
+        # Show dialog after a short delay
+        from kivy.clock import Clock
+        Clock.schedule_once(lambda dt: self.api_dialog.open(), 0.5)
+        
+        return screen_manager
+    
+    def skip_api_key(self):
+        """Skip API key setup - OCR won't work"""
+        self.api_dialog.dismiss()
+        print("OCR功能已禁用 - 未设置 API Key")
+    
+    def save_api_key(self):
+        """Save API key to config file"""
+        api_key = self.api_key_field.text.strip()
+        if api_key:
+            try:
+                with open('config.txt', 'w') as f:
+                    f.write(api_key)
+                self.image_processor = OCRProcessor(api_key)
+                self.api_dialog.dismiss()
+                
+                # Show success
+                success_dialog = MDDialog(
+                    title="设置成功",
+                    text="API Key 已保存，OCR 功能已启用。",
+                    buttons=[
+                        MDFlatButton(text="确定")
+                    ],
+                )
+                success_dialog.buttons[0].bind(on_release=lambda x: success_dialog.dismiss())
+                success_dialog.open()
+                
+            except Exception as e:
+                print(f"Error saving API key: {e}")
+        else:
+            # Show error
+            error_dialog = MDDialog(
+                title="错误",
+                text="请输入有效的 API Key",
+                buttons=[
+                    MDFlatButton(text="确定")
+                ],
+            )
+            error_dialog.buttons[0].bind(on_release=lambda x: error_dialog.dismiss())
+            error_dialog.open()
+    
+    def build_main_screens(self):
+        """Build the main application screens"""
+        try:
+            # Initialize barcode scanner
+            try:
+                if BarcodeScanner:
+                    self.barcode_scanner = BarcodeScanner()
+                else:
+                    self.barcode_scanner = None
+            except Exception as e:
+                print(f"Error initializing barcode scanner: {e}")
+                self.barcode_scanner = None
+            
+            # Screen manager
+            sm = ScreenManager()
+            
+            # Add screens
+            sm.add_widget(MainScreen())
+            sm.add_widget(DeliveryNotesScreen())
+            sm.add_widget(DeliveryDetailScreen())
+            sm.add_widget(ColumnMappingScreen())
+            sm.add_widget(BarcodeScanScreen())
+            
+            return sm
+            
+        except Exception as e:
+            print(f"Error building main screens: {e}")
+            # Return minimal screen on error
+            from kivymd.uix.label import MDLabel
+            return MDLabel(text=f"Error: {str(e)}")
 
 if __name__ == '__main__':
     InventoryManagementApp().run()

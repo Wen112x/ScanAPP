@@ -1,6 +1,42 @@
+# API Keys and Config
+config.txt
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Buildozer files
 .buildozer/
 bin/
-*.pyc
-__pycache__/
-venv/
-.env
+
+# Temporary files
+*.log
+temp_*.jpg
+temp_*.png
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local test files
+test_*.py
+debug_*.py
+*_test.py

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import sqlite3
 import sys
-import pandas as pd
 from datetime import datetime
 import os
 
@@ -146,27 +145,22 @@ class DatabaseManager:
             )
             conn.commit()
     
-    def export_to_excel(self, delivery_note_id, file_path):
-        """导出送货单数据到Excel"""
-        with sqlite3.connect(self.db_path) as conn:
-            # 获取送货单信息
-            delivery_note = pd.read_sql_query(
-                "SELECT * FROM delivery_notes WHERE id = ?",
-                conn, params=(delivery_note_id,)
-            )
+    def export_delivery_note_to_excel(self, delivery_note_id):
+        """导出送货单到CSV (Android兼容)"""
+        try:
+            from simple_export import export_to_csv
             
-            # 获取商品信息
-            items = pd.read_sql_query(
-                "SELECT barcode, name, unit_price, quantity, status FROM items WHERE delivery_note_id = ?",
-                conn, params=(delivery_note_id,)
-            )
+            delivery_note = self.get_delivery_note_by_id(delivery_note_id)
+            items = self.get_items_by_delivery_note(delivery_note_id)
             
-            # 创建Excel文件
-            with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
-                delivery_note.to_excel(writer, sheet_name='送货单信息', index=False)
-                items.to_excel(writer, sheet_name='商品清单', index=False)
+            if not delivery_note:
+                return None
             
-            return True
+            return export_to_csv(delivery_note[1], items)
+            
+        except Exception as e:
+            print(f"Export error: {e}")
+            return None
     
     def delete_delivery_note(self, delivery_note_id):
         """删除送货单及其所有商品"""

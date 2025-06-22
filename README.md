@@ -21,10 +21,10 @@
 
 - **框架**: Kivy + KivyMD
 - **数据库**: SQLite
-- **图像处理**: OpenCV + Pillow
-- **条形码识别**: pyzbar
-- **OCR**: Claude API
-- **数据导出**: pandas + openpyxl
+- **图像处理**: Pillow
+- **条形码识别**: Android原生API / pyzbar
+- **OCR**: Claude AI API
+- **数据导出**: CSV格式
 
 ## 安装配置
 
@@ -80,7 +80,7 @@ buildozer android debug
 ### 5. 数据导出
 - 在送货单详情页面
 - 点击下载图标
-- 导出Excel文件
+- 导出CSV文件
 
 ## 项目结构
 
@@ -117,7 +117,7 @@ A:
 - 确保条形码清晰可见
 - 尝试手动输入条形码
 
-### Q: 无法导出Excel？
+### Q: 无法导出CSV？
 A: 
 - 检查存储权限
 - 确保有足够存储空间

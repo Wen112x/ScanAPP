@@ -16,7 +16,7 @@ jobs:
       uses: jlumbroso/free-disk-space@main
       with:
         tool-cache: false
-        android: false      # no borrar Android SDK (lo usamos)
+        android: false      # no borrar el SDK del sistema (lo usamos)
         dotnet: true
         haskell: true
         large-packages: true
@@ -49,33 +49,28 @@ jobs:
     - name: Install buildozer
       run: pip install buildozer==1.5.0 cython==0.29.33
 
-    - name: Setup Android SDK
+    - name: Configure system Android SDK for buildozer
       run: |
-        ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk
-        mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
+        SYSTEM_SDK=/usr/local/lib/android/sdk
 
-        # Download Android SDK command line tools
-        wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip \
-          -O /tmp/cmdline-tools.zip
-        unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdlinetools_tmp
-        mv /tmp/cmdlinetools_tmp/cmdline-tools $ANDROID_SDK_ROOT/cmdline-tools/latest
+        # Crear symlink estilo antiguo que buildozer 1.5.0 usa para detectar SDK
+        mkdir -p $SYSTEM_SDK/tools/bin
+        ln -sf $SYSTEM_SDK/cmdline-tools/latest/bin/sdkmanager \
+          $SYSTEM_SDK/tools/bin/sdkmanager
 
-        # Create old-style sdkmanager symlink that buildozer 1.5.0 expects
-        mkdir -p $ANDROID_SDK_ROOT/tools/bin
-        ln -sf $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
-          $ANDROID_SDK_ROOT/tools/bin/sdkmanager
+        # Aceptar todas las licencias
+        yes | $SYSTEM_SDK/cmdline-tools/latest/bin/sdkmanager \
+          --sdk_root=$SYSTEM_SDK --licenses || true
 
-        # Accept all licenses (standard + preview)
-        yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
-          --sdk_root=$ANDROID_SDK_ROOT --licenses || true
-
-        # Pre-install SDK components que Gradle necesita para ensamblar el APK
-        yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
-          --sdk_root=$ANDROID_SDK_ROOT \
+        # Verificar que build-tools y platform están disponibles
+        $SYSTEM_SDK/cmdline-tools/latest/bin/sdkmanager \
+          --sdk_root=$SYSTEM_SDK \
           "platforms;android-30" \
-          "build-tools;30.0.3" || true
+          "build-tools;30.0.3"
 
     - name: Build APK
+      env:
+        ANDROIDSDK: /usr/local/lib/android/sdk
       run: buildozer -v android debug
 
     - name: Upload APK

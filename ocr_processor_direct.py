@@ -11,16 +11,20 @@ import re
 import requests
 from kivy.storage.jsonstore import JsonStore
 
+DEFAULT_MODEL = "claude-sonnet-4-6"
+
 class OCRProcessor:
-    def __init__(self, api_key):
+    def __init__(self, api_key, model=None):
         """
         初始化OCR处理器
         Args:
             api_key: Claude API密钥
+            model:   Claude模型ID (默认 claude-sonnet-4-6)
         """
         self.api_key = api_key
+        self.model = model or DEFAULT_MODEL
         self.api_url = "https://api.anthropic.com/v1/messages"
-        
+
         # 验证API密钥格式
         if not api_key or not api_key.startswith('sk-ant-'):
             print("⚠️ 警告: API密钥格式可能不正确")
@@ -70,7 +74,7 @@ class OCRProcessor:
                 }
                 
                 payload = {
-                    "model": "claude-sonnet-4-20250514",
+                    "model": self.model,
                     "max_tokens": 3000,
                     "messages": [
                         {
@@ -256,16 +260,35 @@ class OCRConfig:
     
     def save_api_key(self, api_key):
         """保存API密钥"""
-        self.config_store.put('api', api_key=api_key)
+        existing_model = self.get_model()
+        self.config_store.put('api', api_key=api_key, model=existing_model or DEFAULT_MODEL)
         print("✅ API密钥已保存")
-    
+
+    def save_model(self, model):
+        """保存模型ID"""
+        existing_key = self.get_api_key() or ''
+        self.config_store.put('api', api_key=existing_key, model=model)
+        print(f"✅ 模型已保存: {model}")
+
+    def save_config(self, api_key, model):
+        """同时保存API密钥和模型"""
+        self.config_store.put('api', api_key=api_key, model=model)
+        print(f"✅ 配置已保存 (模型: {model})")
+
     def get_api_key(self):
         """获取API密钥"""
         try:
             return self.config_store.get('api')['api_key']
         except KeyError:
             return None
-    
+
+    def get_model(self):
+        """获取模型ID"""
+        try:
+            return self.config_store.get('api').get('model') or DEFAULT_MODEL
+        except KeyError:
+            return DEFAULT_MODEL
+
     def has_api_key(self):
         """检查是否已设置API密钥"""
         api_key = self.get_api_key()

@@ -134,14 +134,45 @@ class DatabaseManager:
             )
             return cursor.fetchall()
     
-    def search_item_by_barcode(self, delivery_note_id, barcode):
-        """根据条形码搜索商品"""
+    def search_items_by_barcode(self, delivery_note_id, barcode):
+        """Devuelve TODAS las coincidencias (exactas y parciales), ordenadas exactas primero."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT * FROM items 
-                WHERE delivery_note_id = ? AND barcode = ?
-            ''', (delivery_note_id, barcode))
+                SELECT * FROM items
+                WHERE delivery_note_id = ?
+                  AND barcode IS NOT NULL
+                  AND barcode != ''
+                  AND (
+                      barcode = ?
+                      OR barcode LIKE '%' || ? || '%'
+                      OR ? LIKE '%' || barcode || '%'
+                  )
+                ORDER BY
+                    CASE WHEN barcode = ? THEN 0 ELSE 1 END,
+                    name
+            ''', (delivery_note_id, barcode, barcode, barcode, barcode))
+            return cursor.fetchall()
+
+    def search_item_by_barcode(self, delivery_note_id, barcode):
+        """根据条形码搜索商品，支持完整匹配和部分匹配"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            # Exact match first, then partial (barcode contains search term
+            # OR search term contains stored barcode)
+            cursor.execute('''
+                SELECT * FROM items
+                WHERE delivery_note_id = ?
+                  AND barcode IS NOT NULL
+                  AND (
+                      barcode = ?
+                      OR barcode LIKE '%' || ? || '%'
+                      OR ? LIKE '%' || barcode || '%'
+                  )
+                ORDER BY
+                    CASE WHEN barcode = ? THEN 0 ELSE 1 END
+                LIMIT 1
+            ''', (delivery_note_id, barcode, barcode, barcode, barcode))
             return cursor.fetchone()
     
     def get_item_status(self, item_id):

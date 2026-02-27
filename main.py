@@ -83,7 +83,7 @@ class MainScreen(MDScreen):
         # Top toolbar
         toolbar = MDTopAppBar(
             title="库存管理系统",
-            elevation=10,
+            elevation=2,
         )
         main_layout.add_widget(toolbar)
         
@@ -146,7 +146,7 @@ class DeliveryNotesScreen(MDScreen):
             title="送货单管理",
             left_action_items=[["arrow-left", lambda x: self.go_back()]],
             right_action_items=[["plus", lambda x: self.create_new_delivery_note()]],
-            elevation=10,
+            elevation=2,
         )
         main_layout.add_widget(toolbar)
         
@@ -311,7 +311,7 @@ class DeliveryDetailScreen(MDScreen):
                 ["camera", lambda x: self.scan_delivery_note()],
                 ["file-excel", lambda x: self.export_to_excel()]
             ],
-            elevation=10,
+            elevation=2,
         )
         main_layout.add_widget(toolbar)
         
@@ -335,33 +335,27 @@ class DeliveryDetailScreen(MDScreen):
         self.loading_layout.add_widget(self.loading_spinner)
         self.loading_layout.add_widget(self.loading_label)
         
-        # Items list
-        self.items_list = MDList()
-        scroll = MDScrollView()
+        # Items list (padding_bottom=70 so last item isn't hidden under the floating button)
+        self.items_list = MDList(padding=[0, 0, 0, 70])
+        scroll = MDScrollView(size_hint=(1, 1))
         scroll.add_widget(self.items_list)
 
-        # Big barcode scan button bar at the bottom
-        scan_bar = MDBoxLayout(
-            orientation='horizontal',
-            size_hint=(1, None),
-            height=70,
-            padding=[10, 5],
-        )
+        # Floating scan button overlaid at the bottom of the list
+        from kivy.uix.floatlayout import FloatLayout
+        float_content = FloatLayout()
+        float_content.add_widget(scroll)
+        float_content.add_widget(self.loading_layout)
+
         big_scan_btn = MDRaisedButton(
             text="扫描条码",
-            size_hint=(1, None),
-            height=60,
+            size_hint=(0.7, None),
+            height=52,
+            pos_hint={'center_x': 0.5, 'y': 0.02},
         )
         big_scan_btn.bind(on_release=lambda x: self.start_barcode_lookup())
-        scan_bar.add_widget(big_scan_btn)
+        float_content.add_widget(big_scan_btn)
 
-        # Add loading overlay and items list to main layout
-        content_layout = MDBoxLayout(orientation='vertical')
-        content_layout.add_widget(scroll)
-        content_layout.add_widget(self.loading_layout)
-        content_layout.add_widget(scan_bar)
-
-        main_layout.add_widget(content_layout)
+        main_layout.add_widget(float_content)
         self.add_widget(main_layout)
         
         # Initialize variables
@@ -626,9 +620,10 @@ class DeliveryDetailScreen(MDScreen):
                         size_hint_y=None,
                         height=100,
                         spacing=5,
-                        elevation=1 if item[0] != highlight_item_id else 3,
-                        md_bg_color=[0.9, 1, 0.9, 1] if item[0] == highlight_item_id else None
+                        elevation=1 if item[0] == highlight_item_id else 0,
                     )
+                    if item[0] == highlight_item_id:
+                        card.md_bg_color = [0.9, 1, 0.9, 1]
                     
                     content = MDBoxLayout(
                         orientation='horizontal',
@@ -751,7 +746,7 @@ class ColumnMappingScreen(MDScreen):
         toolbar = MDTopAppBar(
             title="列映射",
             left_action_items=[["arrow-left", lambda x: self.go_back()]],
-            elevation=10,
+            elevation=2,
         )
         main_layout.add_widget(toolbar)
         
@@ -956,6 +951,19 @@ class BarcodeScanScreen(MDScreen):
         super().__init__(**kwargs)
         self.name = 'barcode_scan'
         self.camera_widget = None
+        # Multi-match navigation state
+        self._match_results = []
+        self._match_index = 0
+        self._match_dialog = None
+        # Updateable label references (set in _init_match_dialog)
+        self._dlg_counter = None
+        self._dlg_name_val = None
+        self._dlg_barcode_val = None
+        self._dlg_price_val = None
+        self._dlg_qty_val = None
+        self._dlg_total_val = None
+        self._dlg_status_val = None
+        self._dlg_next_btn = None
 
         # Main layout
         main_layout = MDBoxLayout(orientation='vertical')
@@ -964,7 +972,7 @@ class BarcodeScanScreen(MDScreen):
         toolbar = MDTopAppBar(
             title="条码扫描",
             left_action_items=[["arrow-left", lambda x: self.go_back()]],
-            elevation=10,
+            elevation=2,
         )
         main_layout.add_widget(toolbar)
 
@@ -1102,23 +1110,16 @@ class BarcodeScanScreen(MDScreen):
                 dialog.buttons[0].bind(on_release=lambda x: self.finish_scan(dialog, item_id))
                 dialog.open()
             else:
-                # Lookup mode: search delivery note for matching barcode
+                # Lookup mode: search delivery note for all matching barcodes
                 delivery_note_id = getattr(app, 'current_delivery_note_id', None)
                 if delivery_note_id is None:
                     self._show_error_dialog("错误", "未选择送货单")
                     return
-                found_item = app.db.search_item_by_barcode(delivery_note_id, barcode)
-                if found_item:
-                    app.db.update_item_status(found_item[0], 'correct')
-                    dialog = MDDialog(
-                        title="找到商品",
-                        text=f"商品: {found_item[3]}\n条码: {barcode}\n已标记为正确 ✓",
-                        buttons=[MDFlatButton(text="确定")],
-                    )
-                    dialog.buttons[0].bind(
-                        on_release=lambda x: self.finish_lookup(dialog, found_item[0])
-                    )
-                    dialog.open()
+                matches = app.db.search_items_by_barcode(delivery_note_id, barcode)
+                if matches:
+                    self._match_results = list(matches)
+                    self._match_index = 0
+                    self._show_match_dialog()
                 else:
                     self._show_error_dialog("未找到商品", f"条码 {barcode} 未在此送货单中找到")
         except Exception as e:
@@ -1131,11 +1132,157 @@ class BarcodeScanScreen(MDScreen):
         detail_screen.refresh_items(highlight_item_id=item_id)
         self.manager.current = 'delivery_detail'
 
-    def finish_lookup(self, dialog, item_id):
-        dialog.dismiss()
-        detail_screen = self.manager.get_screen('delivery_detail')
-        detail_screen.refresh_items(highlight_item_id=item_id)
+    def _init_match_dialog(self):
+        """Build the match dialog once with updateable label references."""
+        content = MDBoxLayout(
+            orientation='vertical',
+            spacing=4,
+            size_hint_y=None,
+            height=320,
+            padding=[2, 0, 2, 4],
+        )
+
+        # Header row: counter (left) + product name (right)
+        header = MDBoxLayout(orientation='horizontal', size_hint_y=None, height=38)
+        self._dlg_counter = MDLabel(
+            text="1/1",
+            theme_text_color="Secondary",
+            font_style="Caption",
+            size_hint_x=0.18,
+            halign="left",
+            valign="center",
+        )
+        self._dlg_name_val = MDLabel(
+            text="",
+            theme_text_color="Primary",
+            font_style="Subtitle2",
+            size_hint_x=0.82,
+            halign="left",
+            valign="center",
+            shorten=True,
+            shorten_from="right",
+        )
+        header.add_widget(self._dlg_counter)
+        header.add_widget(self._dlg_name_val)
+        content.add_widget(header)
+
+        # Field rows
+        fields_cfg = [
+            ('_dlg_barcode_val', '条码'),
+            ('_dlg_price_val',   '单价'),
+            ('_dlg_qty_val',     '数量'),
+            ('_dlg_total_val',   '总价'),
+            ('_dlg_status_val',  '状态'),
+        ]
+        for attr, label_text in fields_cfg:
+            row = MDBoxLayout(orientation='horizontal', size_hint_y=None, height=32)
+            row.add_widget(MDLabel(
+                text=f"{label_text}:",
+                theme_text_color="Secondary",
+                font_style="Caption",
+                size_hint_x=0.28,
+                bold=True,
+            ))
+            val_lbl = MDLabel(
+                text="",
+                theme_text_color="Primary",
+                font_style="Caption",
+                size_hint_x=0.72,
+            )
+            setattr(self, attr, val_lbl)
+            row.add_widget(val_lbl)
+            content.add_widget(row)
+
+        # Button row: 确认 | 错误 | X | >
+        btn_row = MDBoxLayout(
+            orientation='horizontal',
+            spacing=4,
+            size_hint_y=None,
+            height=52,
+            padding=[0, 6],
+        )
+        confirm_btn = MDRaisedButton(
+            text="确认",
+            size_hint=(0.32, None),
+            height=44,
+            md_bg_color=[0.18, 0.65, 0.28, 1],
+        )
+        confirm_btn.bind(on_release=lambda x: self._match_confirm())
+
+        error_btn = MDRaisedButton(
+            text="错误",
+            size_hint=(0.32, None),
+            height=44,
+            md_bg_color=[0.78, 0.18, 0.18, 1],
+        )
+        error_btn.bind(on_release=lambda x: self._match_error())
+
+        close_btn = MDIconButton(icon="close", size_hint=(0.18, None), height=44)
+        close_btn.bind(on_release=lambda x: self._match_close())
+
+        self._dlg_next_btn = MDIconButton(
+            icon="chevron-right", size_hint=(0.18, None), height=44
+        )
+        self._dlg_next_btn.bind(on_release=lambda x: self._match_next())
+
+        btn_row.add_widget(confirm_btn)
+        btn_row.add_widget(error_btn)
+        btn_row.add_widget(close_btn)
+        btn_row.add_widget(self._dlg_next_btn)
+        content.add_widget(btn_row)
+
+        self._match_dialog = MDDialog(
+            title="找到商品",
+            type="custom",
+            content_cls=content,
+        )
+
+    def _update_match_content(self):
+        """Update dialog labels to reflect the current match index."""
+        if not self._match_results:
+            return
+        item = self._match_results[self._match_index]
+        total = len(self._match_results)
+        status_map = {'correct': '正确 ✓', 'incorrect': '错误 ✗', 'unchecked': '未检查'}
+        self._dlg_counter.text = f"{self._match_index + 1}/{total}"
+        self._dlg_name_val.text = item[3]
+        self._dlg_barcode_val.text = item[2] or '-'
+        self._dlg_price_val.text = f"€ {item[4]:.2f}"
+        self._dlg_qty_val.text = str(item[5])
+        self._dlg_total_val.text = f"€ {item[4] * item[5]:.2f}"
+        self._dlg_status_val.text = status_map.get(item[6], item[6])
+        self._dlg_next_btn.disabled = (total <= 1)
+
+    def _show_match_dialog(self):
+        """Initialize dialog on first use, update content, open."""
+        if self._match_dialog is None:
+            self._init_match_dialog()
+        self._update_match_content()
+        self._match_dialog.open()
+
+    def _match_confirm(self):
+        item = self._match_results[self._match_index]
+        App.get_running_app().db.update_item_status(item[0], 'correct')
+        self._match_close()
+        detail = self.manager.get_screen('delivery_detail')
+        detail.refresh_items(highlight_item_id=item[0])
         self.manager.current = 'delivery_detail'
+
+    def _match_error(self):
+        item = self._match_results[self._match_index]
+        App.get_running_app().db.update_item_status(item[0], 'incorrect')
+        self._match_close()
+        detail = self.manager.get_screen('delivery_detail')
+        detail.refresh_items(highlight_item_id=item[0])
+        self.manager.current = 'delivery_detail'
+
+    def _match_close(self):
+        if self._match_dialog:
+            self._match_dialog.dismiss()
+
+    def _match_next(self):
+        self._match_index = (self._match_index + 1) % len(self._match_results)
+        self._update_match_content()
 
 class InventoryManagementApp(MDApp):
     def build(self):
@@ -1206,8 +1353,9 @@ class InventoryManagementApp(MDApp):
             api_key = self.ocr_config.get_api_key()
             if api_key:
                 try:
-                    self.image_processor = OCRProcessor(api_key)
-                    print("OCR processor initialized with saved API key")
+                    model = self.ocr_config.get_model()
+                    self.image_processor = OCRProcessor(api_key, model)
+                    print(f"OCR processor initialized (model: {model})")
                     return self.build_main_screens()
                 except Exception as e:
                     print(f"Error initializing OCR processor: {e}")
@@ -1231,29 +1379,52 @@ class InventoryManagementApp(MDApp):
                 return self.show_api_key_dialog()
     
     def show_api_key_dialog(self):
-        """Show dialog to input API key"""
+        """Show dialog to input API key and model"""
         from kivymd.uix.textfield import MDTextField
         from kivymd.uix.dialog import MDDialog
         from kivymd.uix.button import MDFlatButton, MDRaisedButton
-        
-        self.api_key_field = MDTextField(
-            hint_text="输入 Claude API Key",
-            helper_text="请输入您的 Claude API Key 以使用 OCR 功能",
-            helper_text_mode="on_focus",
-            password=True
+
+        # Load current saved values (if any)
+        saved_key = ''
+        saved_model = 'claude-sonnet-4-6'
+        if OCRConfig:
+            try:
+                saved_key = self.ocr_config.get_api_key() or ''
+                saved_model = self.ocr_config.get_model() or 'claude-sonnet-4-6'
+            except Exception:
+                pass
+
+        form = MDBoxLayout(
+            orientation='vertical',
+            spacing=12,
+            size_hint_y=None,
+            height=160,
         )
-        
+
+        self.api_key_field = MDTextField(
+            text=saved_key,
+            hint_text="Claude API Key",
+            helper_text="sk-ant-api03-...",
+            helper_text_mode="on_focus",
+            password=True,
+        )
+        self.api_model_field = MDTextField(
+            text=saved_model,
+            hint_text="模型 (Model)",
+            helper_text="例如: claude-sonnet-4-6",
+            helper_text_mode="on_focus",
+        )
+
+        form.add_widget(self.api_key_field)
+        form.add_widget(self.api_model_field)
+
         self.api_dialog = MDDialog(
-            title="设置 API Key",
+            title="API 设置",
             type="custom",
-            content_cls=self.api_key_field,
+            content_cls=form,
             buttons=[
-                MDFlatButton(
-                    text="跳过"
-                ),
-                MDRaisedButton(
-                    text="保存"
-                ),
+                MDFlatButton(text="跳过"),
+                MDRaisedButton(text="保存"),
             ],
         )
         
@@ -1276,21 +1447,25 @@ class InventoryManagementApp(MDApp):
         print("OCR功能已禁用 - 未设置 API Key")
     
     def save_api_key(self):
-        """Save API key to config file"""
+        """Save API key and model to config"""
         api_key = self.api_key_field.text.strip()
+        model = getattr(self, 'api_model_field', None)
+        model = model.text.strip() if model else ''
+        if not model:
+            model = 'claude-sonnet-4-6'
         if api_key:
             try:
                 # Save using new config system if available
                 if OCRConfig:
-                    self.ocr_config.save_api_key(api_key)
+                    self.ocr_config.save_config(api_key, model)
                 else:
                     # Fallback to file
                     with open('config.txt', 'w', encoding='utf-8') as f:
                         f.write(api_key)
-                
+
                 # Create OCRProcessor if available
                 if OCRProcessor is not None:
-                    self.image_processor = OCRProcessor(api_key)
+                    self.image_processor = OCRProcessor(api_key, model)
                 else:
                     self.image_processor = None
                     

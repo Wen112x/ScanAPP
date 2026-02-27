@@ -43,6 +43,9 @@ android.add_src =
 # (str) Bootstrap to use for android builds
 android.bootstrap = sdl2
 
+# (list) Gradle dependencies para ML Kit barcode scanning (escaneo in-app)
+android.gradle_dependencies = com.google.mlkit:barcode-scanning:17.2.0
+
 # (bool) Use --private data storage (True) or --dir public storage (False)
 android.private_storage = True
 

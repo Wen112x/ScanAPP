@@ -933,10 +933,11 @@ class BarcodeScanScreen(MDScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.name = 'barcode_scan'
-        
+        self.camera_widget = None
+
         # Main layout
         main_layout = MDBoxLayout(orientation='vertical')
-        
+
         # Top toolbar
         toolbar = MDTopAppBar(
             title="条码扫描",
@@ -944,62 +945,82 @@ class BarcodeScanScreen(MDScreen):
             elevation=10,
         )
         main_layout.add_widget(toolbar)
-        
-        # Content
-        content = MDBoxLayout(
+
+        # Vista de cámara en vivo (60% de la pantalla)
+        try:
+            from kivy.uix.camera import Camera
+            self.camera_widget = Camera(
+                resolution=(640, 480),
+                play=False,
+                size_hint=(1, 0.6),
+            )
+            main_layout.add_widget(self.camera_widget)
+        except Exception as e:
+            print(f"Camera not available: {e}")
+            placeholder = MDLabel(
+                text="相机不可用",
+                halign="center",
+                size_hint=(1, 0.6),
+            )
+            main_layout.add_widget(placeholder)
+
+        # Controles (40% inferior)
+        controls = MDBoxLayout(
             orientation='vertical',
-            padding=20,
-            spacing=20
+            padding=15,
+            spacing=10,
+            size_hint=(1, 0.4),
         )
-        
-        # Instructions
-        instructions = MDLabel(
-            text="请选择扫描方式:",
-            theme_text_color="Primary",
-            size_hint_y=None,
-            height=50,
-            halign="center"
+
+        # Botón de captura y escaneo
+        scan_btn = MDRaisedButton(
+            text="拍照扫描",
+            size_hint=(1, None),
+            height=60,
         )
-        content.add_widget(instructions)
-        
-        # Scan from camera button
-        camera_btn = MDRaisedButton(
-            text="使用相机扫描",
-            size_hint_y=None,
-            height=60
-        )
-        camera_btn.bind(on_release=self.scan_from_camera)
-        content.add_widget(camera_btn)
-        
-        # Scan from image button
-        image_btn = MDRaisedButton(
-            text="从图片扫描",
-            size_hint_y=None,
-            height=60
-        )
-        image_btn.bind(on_release=self.scan_from_image)
-        content.add_widget(image_btn)
-        
-        # Manual input
+        scan_btn.bind(on_release=self.capture_and_scan)
+        controls.add_widget(scan_btn)
+
+        # Entrada manual
         manual_input = MDTextField(
             hint_text="或手动输入条码",
             helper_text="手动输入条码并按回车",
-            helper_text_mode="on_focus"
+            helper_text_mode="on_focus",
         )
         manual_input.bind(on_text_validate=self.on_manual_input)
-        content.add_widget(manual_input)
-        
-        main_layout.add_widget(content)
+        controls.add_widget(manual_input)
+
+        main_layout.add_widget(controls)
         self.add_widget(main_layout)
+
+    def on_enter(self):
+        """Activar cámara al entrar en la pantalla."""
+        if self.camera_widget:
+            self.camera_widget.play = True
+
+    def on_leave(self):
+        """Detener cámara al salir de la pantalla."""
+        if self.camera_widget:
+            self.camera_widget.play = False
     
     def go_back(self):
         self.manager.current = 'delivery_detail'
     
-    def scan_from_camera(self, instance):
-        """从相机扫描条码 - usa ZXing vía callback asíncrono"""
+    def capture_and_scan(self, instance):
+        """Capturar frame de la cámara y escanear con ML Kit (sin salir de la app)."""
         app = App.get_running_app()
         if not app.barcode_scanner:
-            self._show_error_dialog("扫描功能不可用", "条码扫描器未初始化。")
+            self._show_error_dialog("扫描功能不可用", "条码扫描器未初始化")
+            return
+        if not self.camera_widget:
+            self._show_error_dialog("相机不可用", "请手动输入条码")
+            return
+
+        tmp_path = os.path.join(app.user_data_dir, 'scan_frame.png')
+        try:
+            self.camera_widget.export_to_png(tmp_path)
+        except Exception as e:
+            self._show_error_dialog("扫描失败", f"无法捕获相机画面: {e}")
             return
 
         def on_scan_result(barcode, error=None):
@@ -1007,9 +1028,8 @@ class BarcodeScanScreen(MDScreen):
                 Clock.schedule_once(lambda dt: self._show_error_dialog("扫描失败", error))
             elif barcode:
                 Clock.schedule_once(lambda dt: self.process_scanned_barcode(barcode))
-            # Si barcode es None sin error: usuario canceló, no hacer nada
 
-        app.barcode_scanner.scan_from_camera(callback=on_scan_result)
+        app.barcode_scanner.scan_from_mlkit(tmp_path, on_scan_result)
 
     def _show_error_dialog(self, title, message):
         dialog = MDDialog(
@@ -1019,36 +1039,7 @@ class BarcodeScanScreen(MDScreen):
         )
         dialog.buttons[0].bind(on_release=lambda x: dialog.dismiss())
         dialog.open()
-    
-    def scan_from_image(self, instance):
-        """从图片扫描条码"""
-        try:
-            filechooser.open_file(on_selection=self.on_image_selected)
-        except Exception as e:
-            print(f"文件选择失败: {e}")
-    
-    def on_image_selected(self, selection):
-        if selection:
-            try:
-                app = App.get_running_app()
-                barcode = app.barcode_scanner.scan_from_image(selection[0])
-                if barcode:
-                    self.process_scanned_barcode(barcode)
-                else:
-                    dialog = MDDialog(
-                        title="扫描失败",
-                        text="未能从图片中检测到条码。",
-                        buttons=[
-                            MDFlatButton(
-                                text="确定"
-                            ),
-                        ],
-                    )
-                    dialog.buttons[0].bind(on_release=lambda x: dialog.dismiss())
-                    dialog.open()
-            except Exception as e:
-                print(f"图片扫描失败: {e}")
-    
+
     def on_manual_input(self, instance):
         """处理手动输入的条码"""
         barcode = instance.text.strip()

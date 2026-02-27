@@ -996,14 +996,29 @@ class BarcodeScanScreen(MDScreen):
         self.manager.current = 'delivery_detail'
     
     def scan_from_camera(self, instance):
-        """从相机扫描条码"""
-        try:
-            app = App.get_running_app()
-            barcode = app.barcode_scanner.scan_from_camera()
-            if barcode:
-                self.process_scanned_barcode(barcode)
-        except Exception as e:
-            print(f"相机扫描失败: {e}")
+        """从相机扫描条码 - usa ZXing vía callback asíncrono"""
+        app = App.get_running_app()
+        if not app.barcode_scanner:
+            self._show_error_dialog("扫描功能不可用", "条码扫描器未初始化。")
+            return
+
+        def on_scan_result(barcode, error=None):
+            if error:
+                Clock.schedule_once(lambda dt: self._show_error_dialog("扫描失败", error))
+            elif barcode:
+                Clock.schedule_once(lambda dt: self.process_scanned_barcode(barcode))
+            # Si barcode es None sin error: usuario canceló, no hacer nada
+
+        app.barcode_scanner.scan_from_camera(callback=on_scan_result)
+
+    def _show_error_dialog(self, title, message):
+        dialog = MDDialog(
+            title=title,
+            text=message,
+            buttons=[MDFlatButton(text="确定")],
+        )
+        dialog.buttons[0].bind(on_release=lambda x: dialog.dismiss())
+        dialog.open()
     
     def scan_from_image(self, instance):
         """从图片扫描条码"""
@@ -1076,23 +1091,37 @@ class InventoryManagementApp(MDApp):
     def build(self):
         # KivyMD's ThemeManager registers fonts during MDApp.__init__,
         # so we must re-register our CJK font HERE (after that) to override it.
+        from kivy.utils import platform as kivy_platform
+        _font_path = None
         if platform.system() == 'Windows':
-            _cjk_fonts = [
-                r'C:\Windows\Fonts\simhei.ttf',  # SimHei (plain TTF, safest)
-                r'C:\Windows\Fonts\msyh.ttc',    # Microsoft YaHei
-                r'C:\Windows\Fonts\simsun.ttc',  # SimSun
-            ]
-            for _font_path in _cjk_fonts:
-                if os.path.exists(_font_path):
-                    LabelBase.register(
-                        name='Roboto',
-                        fn_regular=_font_path,
-                        fn_bold=_font_path,
-                        fn_italic=_font_path,
-                        fn_bolditalic=_font_path,
-                    )
-                    print(f"CJK font registered: {_font_path}")
+            for _fp in [
+                r'C:\Windows\Fonts\simhei.ttf',
+                r'C:\Windows\Fonts\msyh.ttc',
+                r'C:\Windows\Fonts\simsun.ttc',
+            ]:
+                if os.path.exists(_fp):
+                    _font_path = _fp
                     break
+        elif kivy_platform == 'android':
+            # Android tiene fuentes CJK en el sistema
+            for _fp in [
+                '/system/fonts/NotoSansCJK-Regular.ttc',
+                '/system/fonts/DroidSansFallback.ttf',
+                '/system/fonts/NotoSansSC-Regular.otf',
+                '/system/fonts/NotoSansTC-Regular.otf',
+            ]:
+                if os.path.exists(_fp):
+                    _font_path = _fp
+                    break
+        if _font_path:
+            LabelBase.register(
+                name='Roboto',
+                fn_regular=_font_path,
+                fn_bold=_font_path,
+                fn_italic=_font_path,
+                fn_bolditalic=_font_path,
+            )
+            print(f"CJK font registered: {_font_path}")
 
         try:
             # Initialize database

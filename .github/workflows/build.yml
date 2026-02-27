@@ -38,13 +38,25 @@ jobs:
     - name: Install buildozer
       run: pip install buildozer==1.5.0 cython==0.29.33
 
-    - name: Accept Android SDK licenses
+    - name: Setup Android SDK
       run: |
-        mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
-        printf "24333f8a63b6825ea9c5514f83c2829b004d1fee\nd56f5187479451eabf01fb78af6dfcb131a6481e\n8933bad161af4178b1185d1a37fbf41ea5269c55\n" \
-          > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-        printf "84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910\n" \
-          > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
+        ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk
+        mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
+
+        # Download Android SDK command line tools
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip \
+          -O /tmp/cmdline-tools.zip
+        unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdlinetools_tmp
+        mv /tmp/cmdlinetools_tmp/cmdline-tools $ANDROID_SDK_ROOT/cmdline-tools/latest
+
+        # Create old-style sdkmanager symlink that buildozer 1.5.0 expects
+        mkdir -p $ANDROID_SDK_ROOT/tools/bin
+        ln -sf $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
+          $ANDROID_SDK_ROOT/tools/bin/sdkmanager
+
+        # Accept all licenses (standard + preview)
+        yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
+          --sdk_root=$ANDROID_SDK_ROOT --licenses || true
 
     - name: Build APK
       run: buildozer -v android debug

@@ -69,6 +69,12 @@ jobs:
         yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
           --sdk_root=$ANDROID_SDK_ROOT --licenses || true
 
+        # Pre-install SDK components que Gradle necesita para ensamblar el APK
+        yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
+          --sdk_root=$ANDROID_SDK_ROOT \
+          "platforms;android-30" \
+          "build-tools;30.0.3" || true
+
     - name: Build APK
       run: buildozer -v android debug
 

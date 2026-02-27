@@ -1,11 +1,20 @@
 # -*- coding: utf-8 -*-
 import sqlite3
-import sys
 from datetime import datetime
 import os
 
 class DatabaseManager:
-    def __init__(self, db_path="inventory.db"):
+    def __init__(self, db_path=None):
+        if db_path is None:
+            try:
+                from kivy.app import App
+                app = App.get_running_app()
+                if app and hasattr(app, 'user_data_dir'):
+                    db_path = os.path.join(app.user_data_dir, 'inventory.db')
+                else:
+                    db_path = 'inventory.db'
+            except Exception:
+                db_path = 'inventory.db'
         self.db_path = db_path
         self.init_database()
     
@@ -43,7 +52,7 @@ class DatabaseManager:
                 print("Database initialized successfully")
         except Exception as e:
             print(f"Database initialization error: {e}")
-            sys.exit(1)
+            raise RuntimeError(f"No se pudo inicializar la base de datos: {e}")
     
     def create_delivery_note(self, name):
         """创建新的送货单"""
@@ -162,6 +171,13 @@ class DatabaseManager:
             print(f"Export error: {e}")
             return None
     
+    def get_delivery_note_by_id(self, delivery_note_id):
+        """Obtener una nota de entrega por su ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM delivery_notes WHERE id = ?", (delivery_note_id,))
+            return cursor.fetchone()
+
     def delete_delivery_note(self, delivery_note_id):
         """删除送货单及其所有商品"""
         with sqlite3.connect(self.db_path) as conn:

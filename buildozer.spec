@@ -1,7 +1,7 @@
 [app]
 
 # (str) Title of your application
-title = 库存管理系统
+title = ScanApp
 
 # (str) Package name
 package.name = inventoryapp
@@ -13,14 +13,14 @@ package.domain = org.scanapp
 source.dir = .
 
 # (list) Source files to include (let empty to include all the files)
-source.include_exts = py,png,jpg,kv,atlas,txt
+source.include_exts = py,png,jpg,kv,atlas,txt,json
 
 # (str) Application versioning (method 1)
 version = 1.0
 
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
-requirements = python3,kivy==2.1.0,kivymd==1.1.1,pillow==9.5.0,requests,anthropic,plyer,pyjnius,sqlite3
+requirements = python3,kivy==2.2.0,kivymd==1.1.1,pillow,requests,plyer,pyjnius
 
 # (str) Supported orientation (one of landscape, sensorLandscape, portrait or all)
 orientation = portrait
@@ -29,13 +29,13 @@ orientation = portrait
 fullscreen = 0
 
 # (int) Target Android API, should be as high as possible.
-android.api = 33
+android.api = 30
 
 # (int) Minimum API your APK will support.
 android.minapi = 21
 
 # (list) Permissions
-android.permissions = CAMERA, WRITE_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE, INTERNET
+android.permissions = CAMERA, INTERNET, READ_MEDIA_IMAGES, READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE
 
 # (list) Android addons
 android.add_src = 
@@ -50,7 +50,7 @@ android.private_storage = True
 android.ndk = 25b
 
 # (int) Android SDK version to use
-android.sdk = 31
+android.sdk = 30
 
 # (list) Android application meta-data to set (key=value format)
 android.meta_data = com.google.android.gms.vision.DEPENDENCIES=barcode

@@ -2,13 +2,16 @@
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.config import Config
+from kivy.core.text import LabelBase
 # Configuración para Android - solo en desktop
 import platform
+import os
 if platform.system() == 'Windows' or platform.system() == 'Linux':
     # Solo configurar ventana en desktop
     Config.set('graphics', 'width', '360')
     Config.set('graphics', 'height', '640')
     Config.set('graphics', 'resizable', False)
+
 
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
@@ -34,12 +37,28 @@ from kivymd.uix.navigationdrawer import MDNavigationDrawer
 from kivymd.uix.scrollview import MDScrollView
 from kivymd.uix.spinner import MDSpinner
 from kivymd.uix.progressbar import MDProgressBar
-from plyer import camera, filechooser
+try:
+    from plyer import camera, filechooser
+except Exception:
+    camera = None
+    filechooser = None
 import os
 import threading
 import sqlite3
 from database import DatabaseManager
-from ocr_processor import OCRProcessor
+try:
+    # Usar la versión directa HTTP (compatible con Android)
+    from ocr_processor_direct import OCRProcessor, OCRConfig
+    print("Using direct HTTP OCR processor (compatible with Android)")
+except ImportError:
+    try:
+        from ocr_processor import OCRProcessor
+        print("Using desktop OCR processor (direct API)")
+        OCRConfig = None
+    except ImportError:
+        print("OCR Processor not available - OCR functionality disabled")
+        OCRProcessor = None
+        OCRConfig = None
 
 # Import appropriate barcode scanner
 try:
@@ -94,11 +113,25 @@ class MainScreen(MDScreen):
         nav_button.bind(on_release=self.go_to_delivery_notes)
         content.add_widget(nav_button)
         
+        # API configuration button
+        config_button = MDRaisedButton(
+            text="API设置",
+            size_hint_y=None,
+            height=60
+        )
+        config_button.bind(on_release=self.go_to_api_config)
+        content.add_widget(config_button)
+        
         main_layout.add_widget(content)
         self.add_widget(main_layout)
     
     def go_to_delivery_notes(self, instance):
         self.manager.current = 'delivery_notes'
+    
+    def go_to_api_config(self, instance):
+        # Show API key dialog directly
+        app = App.get_running_app()
+        app.show_api_key_dialog()
 
 class DeliveryNotesScreen(MDScreen):
     def __init__(self, **kwargs):
@@ -293,14 +326,14 @@ class DeliveryDetailScreen(MDScreen):
         )
         
         self.loading_spinner = MDSpinner(size_hint=(None, None), size=(46, 46))
-        loading_label = MDLabel(
+        self.loading_label = MDLabel(
             text="正在处理图像...",
             theme_text_color="Primary",
             halign="center"
         )
         
         self.loading_layout.add_widget(self.loading_spinner)
-        self.loading_layout.add_widget(loading_label)
+        self.loading_layout.add_widget(self.loading_label)
         
         # Items list
         self.items_list = MDList()
@@ -474,12 +507,37 @@ class DeliveryDetailScreen(MDScreen):
         if not image_paths:
             return
         
+        app = App.get_running_app()
+        
+        # Check if OCR processor is available
+        if app.image_processor is None:
+            dialog = MDDialog(
+                title="OCR功能未启用",
+                text="此平台不支持OCR功能，或未配置API Key。请手动添加商品。",
+                buttons=[
+                    MDFlatButton(
+                        text="确定"
+                    ),
+                ],
+            )
+            dialog.buttons[0].bind(on_release=lambda x: dialog.dismiss())
+            dialog.open()
+            return
+        
         self.show_loading(True)
+        
+        def progress_callback(current, total, message):
+            """进度回调函数 - 在主线程更新UI"""
+            def update_ui(dt):
+                self.loading_label.text = f"{message}\n({current}/{total})"
+            Clock.schedule_once(update_ui, 0)
         
         def process_ocr():
             try:
-                app = App.get_running_app()
-                extracted_data = app.image_processor.extract_delivery_note_data(image_paths)
+                extracted_data = app.image_processor.extract_delivery_note_data(
+                    image_paths, 
+                    progress_callback=progress_callback
+                )
                 
                 # Schedule UI update on main thread
                 Clock.schedule_once(lambda dt: self.show_column_mapping(extracted_data), 0)
@@ -488,6 +546,10 @@ class DeliveryDetailScreen(MDScreen):
             except Exception as e:
                 print(f"OCR处理错误: {e}")
                 Clock.schedule_once(lambda dt: self.show_loading(False), 0)
+                # Mostrar error en la UI
+                def show_error(dt):
+                    self.loading_label.text = f"处理失败: {str(e)}"
+                Clock.schedule_once(show_error, 0)
         
         threading.Thread(target=process_ocr).start()
     
@@ -1012,6 +1074,26 @@ class BarcodeScanScreen(MDScreen):
 
 class InventoryManagementApp(MDApp):
     def build(self):
+        # KivyMD's ThemeManager registers fonts during MDApp.__init__,
+        # so we must re-register our CJK font HERE (after that) to override it.
+        if platform.system() == 'Windows':
+            _cjk_fonts = [
+                r'C:\Windows\Fonts\simhei.ttf',  # SimHei (plain TTF, safest)
+                r'C:\Windows\Fonts\msyh.ttc',    # Microsoft YaHei
+                r'C:\Windows\Fonts\simsun.ttc',  # SimSun
+            ]
+            for _font_path in _cjk_fonts:
+                if os.path.exists(_font_path):
+                    LabelBase.register(
+                        name='Roboto',
+                        fn_regular=_font_path,
+                        fn_bold=_font_path,
+                        fn_italic=_font_path,
+                        fn_bolditalic=_font_path,
+                    )
+                    print(f"CJK font registered: {_font_path}")
+                    break
+
         try:
             # Initialize database
             self.db = DatabaseManager()
@@ -1028,19 +1110,43 @@ class InventoryManagementApp(MDApp):
     
     def check_api_key(self):
         """Check if API key exists, if not prompt user"""
-        try:
-            with open('config.txt', 'r') as f:
-                api_key = f.read().strip()
-                if api_key and api_key != 'your_claude_api_key_here':
+        # Skip OCR setup if OCRProcessor is not available
+        if OCRProcessor is None:
+            print("OCR functionality not available on this platform")
+            self.image_processor = None
+            return self.build_main_screens()
+        
+        # Initialize configuration manager
+        if OCRConfig:
+            self.ocr_config = OCRConfig()
+            
+            # Check if API key exists
+            api_key = self.ocr_config.get_api_key()
+            if api_key:
+                try:
                     self.image_processor = OCRProcessor(api_key)
+                    print("OCR processor initialized with saved API key")
                     return self.build_main_screens()
-                else:
-                    return self.show_api_key_dialog()
-        except FileNotFoundError:
+                except Exception as e:
+                    print(f"Error initializing OCR processor: {e}")
+            
+            # No API key found, show dialog
             return self.show_api_key_dialog()
-        except Exception as e:
-            print(f"Error reading API key: {e}")
-            return self.show_api_key_dialog()
+        else:
+            # Fallback for older version
+            try:
+                with open('config.txt', 'r', encoding='utf-8') as f:
+                    api_key = f.read().strip()
+                    if api_key and api_key != 'your_claude_api_key_here':
+                        self.image_processor = OCRProcessor(api_key)
+                        return self.build_main_screens()
+                    else:
+                        return self.show_api_key_dialog()
+            except FileNotFoundError:
+                return self.show_api_key_dialog()
+            except Exception as e:
+                print(f"Error reading API key: {e}")
+                return self.show_api_key_dialog()
     
     def show_api_key_dialog(self):
         """Show dialog to input API key"""
@@ -1092,15 +1198,27 @@ class InventoryManagementApp(MDApp):
         api_key = self.api_key_field.text.strip()
         if api_key:
             try:
-                with open('config.txt', 'w') as f:
-                    f.write(api_key)
-                self.image_processor = OCRProcessor(api_key)
+                # Save using new config system if available
+                if OCRConfig:
+                    self.ocr_config.save_api_key(api_key)
+                else:
+                    # Fallback to file
+                    with open('config.txt', 'w', encoding='utf-8') as f:
+                        f.write(api_key)
+                
+                # Create OCRProcessor if available
+                if OCRProcessor is not None:
+                    self.image_processor = OCRProcessor(api_key)
+                else:
+                    self.image_processor = None
+                    
                 self.api_dialog.dismiss()
                 
                 # Show success
+                success_text = "API Key 已保存，OCR 功能已启用。" if OCRProcessor is not None else "API Key 已保存，但此平台不支持OCR功能。"
                 success_dialog = MDDialog(
                     title="设置成功",
-                    text="API Key 已保存，OCR 功能已启用。",
+                    text=success_text,
                     buttons=[
                         MDFlatButton(text="确定")
                     ],
@@ -1110,6 +1228,15 @@ class InventoryManagementApp(MDApp):
                 
             except Exception as e:
                 print(f"Error saving API key: {e}")
+                error_dialog = MDDialog(
+                    title="保存失败",
+                    text=f"保存API Key时出错: {str(e)}",
+                    buttons=[
+                        MDFlatButton(text="确定")
+                    ],
+                )
+                error_dialog.buttons[0].bind(on_release=lambda x: error_dialog.dismiss())
+                error_dialog.open()
         else:
             # Show error
             error_dialog = MDDialog(

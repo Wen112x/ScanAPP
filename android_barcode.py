@@ -11,7 +11,8 @@ class AndroidBarcodeScanner:
             self.Intent = autoclass('android.content.Intent')
             self.PythonActivity = autoclass('org.kivy.android.PythonActivity')
         except ImportError:
-            print("Running on desktop - barcode scanning not available")
+            print("🖥️ Ejecutándose en escritorio - escaneo de códigos no disponible (solo Android)")
+            print("💡 Para probar funcionalidades completas, compila con: buildozer android debug")
     
     def scan_from_camera(self):
         """Scan barcode using Android camera intent"""

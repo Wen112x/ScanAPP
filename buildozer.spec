@@ -53,7 +53,7 @@ android.ndk = 25b
 android.sdk = 30
 
 # (list) Android application meta-data to set (key=value format)
-android.meta_data = com.google.android.gms.vision.DEPENDENCIES=barcode
+# android.meta_data = com.google.android.gms.vision.DEPENDENCIES=barcode
 
 # (list) Android library project to add (will be added to project.properties)
 # android.library_references = @aar/com.google.android.gms:play-services-vision:20.1.3
@@ -65,7 +65,7 @@ android.logcat_filters = *:S python:D
 android.copy_libs = 1
 
 # (str) The Android arch to build for, choices: armeabi-v7a, arm64-v8a, x86, x86_64
-android.archs = arm64-v8a, armeabi-v7a
+android.archs = arm64-v8a
 
 # (bool) enables Android auto backup feature (Android API >=23)
 android.allow_backup = True

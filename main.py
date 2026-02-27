@@ -339,12 +339,28 @@ class DeliveryDetailScreen(MDScreen):
         self.items_list = MDList()
         scroll = MDScrollView()
         scroll.add_widget(self.items_list)
-        
+
+        # Big barcode scan button bar at the bottom
+        scan_bar = MDBoxLayout(
+            orientation='horizontal',
+            size_hint=(1, None),
+            height=70,
+            padding=[10, 5],
+        )
+        big_scan_btn = MDRaisedButton(
+            text="扫描条码",
+            size_hint=(1, None),
+            height=60,
+        )
+        big_scan_btn.bind(on_release=lambda x: self.start_barcode_lookup())
+        scan_bar.add_widget(big_scan_btn)
+
         # Add loading overlay and items list to main layout
-        content_layout = MDBoxLayout()
+        content_layout = MDBoxLayout(orientation='vertical')
         content_layout.add_widget(scroll)
         content_layout.add_widget(self.loading_layout)
-        
+        content_layout.add_widget(scan_bar)
+
         main_layout.add_widget(content_layout)
         self.add_widget(main_layout)
         
@@ -684,13 +700,19 @@ class DeliveryDetailScreen(MDScreen):
         self.refresh_items()
     
     def scan_item_barcode(self, item_id):
-        """扫描商品条码"""
+        """扫描商品条码 (per-item: assigns barcode to a specific item)"""
         try:
             app = App.get_running_app()
             app.current_item_id = item_id
             self.manager.current = 'barcode_scan'
         except Exception as e:
             print(f"启动条码扫描时出错: {e}")
+
+    def start_barcode_lookup(self):
+        """扫描条码并在当前送货单中查找匹配商品"""
+        app = App.get_running_app()
+        app.current_item_id = None  # No specific item — lookup mode
+        self.manager.current = 'barcode_scan'
     
     def export_to_excel(self):
         """导出到Excel"""
@@ -995,8 +1017,25 @@ class BarcodeScanScreen(MDScreen):
 
     def on_enter(self):
         """Activar cámara al entrar en la pantalla."""
+        from kivy.utils import platform as kivy_platform
+        if kivy_platform == 'android':
+            try:
+                from android.permissions import request_permissions, Permission, check_permission
+                if not check_permission(Permission.CAMERA):
+                    request_permissions([Permission.CAMERA], self._on_permission_result)
+                    return  # Start camera only after permission granted
+            except Exception as e:
+                print(f"Permission check failed: {e}")
         if self.camera_widget:
             self.camera_widget.play = True
+
+    def _on_permission_result(self, permissions, grants):
+        """Called after Android permission dialog is answered."""
+        if grants and all(grants):
+            if self.camera_widget:
+                self.camera_widget.play = True
+        else:
+            self._show_error_dialog("权限被拒绝", "需要相机权限才能扫描条码\n请在系统设置中授权")
 
     def on_leave(self):
         """Detener cámara al salir de la pantalla."""
@@ -1051,29 +1090,49 @@ class BarcodeScanScreen(MDScreen):
         try:
             app = App.get_running_app()
             item_id = getattr(app, 'current_item_id', None)
-            
+
             if item_id:
-                # Update item barcode
+                # Per-item mode: assign barcode to a specific item
                 app.db.update_item_barcode(item_id, barcode)
-                
-                # Show success message
                 dialog = MDDialog(
                     title="扫描成功",
                     text=f"条码 {barcode} 已保存。",
-                    buttons=[
-                        MDFlatButton(
-                            text="确定"
-                        ),
-                    ],
+                    buttons=[MDFlatButton(text="确定")],
                 )
                 dialog.buttons[0].bind(on_release=lambda x: self.finish_scan(dialog, item_id))
                 dialog.open()
+            else:
+                # Lookup mode: search delivery note for matching barcode
+                delivery_note_id = getattr(app, 'current_delivery_note_id', None)
+                if delivery_note_id is None:
+                    self._show_error_dialog("错误", "未选择送货单")
+                    return
+                found_item = app.db.search_item_by_barcode(delivery_note_id, barcode)
+                if found_item:
+                    app.db.update_item_status(found_item[0], 'correct')
+                    dialog = MDDialog(
+                        title="找到商品",
+                        text=f"商品: {found_item[3]}\n条码: {barcode}\n已标记为正确 ✓",
+                        buttons=[MDFlatButton(text="确定")],
+                    )
+                    dialog.buttons[0].bind(
+                        on_release=lambda x: self.finish_lookup(dialog, found_item[0])
+                    )
+                    dialog.open()
+                else:
+                    self._show_error_dialog("未找到商品", f"条码 {barcode} 未在此送货单中找到")
         except Exception as e:
             print(f"处理条码时出错: {e}")
-    
+
     def finish_scan(self, dialog, item_id):
         dialog.dismiss()
         # Go back to delivery detail and highlight the updated item
+        detail_screen = self.manager.get_screen('delivery_detail')
+        detail_screen.refresh_items(highlight_item_id=item_id)
+        self.manager.current = 'delivery_detail'
+
+    def finish_lookup(self, dialog, item_id):
+        dialog.dismiss()
         detail_screen = self.manager.get_screen('delivery_detail')
         detail_screen.refresh_items(highlight_item_id=item_id)
         self.manager.current = 'delivery_detail'
@@ -1105,14 +1164,17 @@ class InventoryManagementApp(MDApp):
                     _font_path = _fp
                     break
         if _font_path:
-            LabelBase.register(
-                name='Roboto',
-                fn_regular=_font_path,
-                fn_bold=_font_path,
-                fn_italic=_font_path,
-                fn_bolditalic=_font_path,
-            )
-            print(f"CJK font registered: {_font_path}")
+            # Register all KivyMD font names so CJK appears everywhere:
+            # H6/Subtitle2/Button use 'RobotoMedium', H1-H4 use 'RobotoLight'
+            for _font_name in ('Roboto', 'RobotoMedium', 'RobotoLight', 'RobotoBold'):
+                LabelBase.register(
+                    name=_font_name,
+                    fn_regular=_font_path,
+                    fn_bold=_font_path,
+                    fn_italic=_font_path,
+                    fn_bolditalic=_font_path,
+                )
+            print(f"CJK font registered for all styles: {_font_path}")
 
         try:
             # Initialize database

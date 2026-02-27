@@ -144,6 +144,24 @@ class DatabaseManager:
             ''', (delivery_note_id, barcode))
             return cursor.fetchone()
     
+    def get_item_status(self, item_id):
+        """获取商品状态"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT status FROM items WHERE id = ?", (item_id,))
+            row = cursor.fetchone()
+            return row[0] if row else 'unchecked'
+
+    def update_item_barcode(self, item_id, barcode):
+        """更新商品条码"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE items SET barcode = ? WHERE id = ?",
+                (barcode, item_id)
+            )
+            conn.commit()
+
     def update_item_status(self, item_id, status):
         """更新商品状态 (unchecked, correct, incorrect)"""
         with sqlite3.connect(self.db_path) as conn:
